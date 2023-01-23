@@ -15,7 +15,7 @@ void FileTracer::Error(const std::string &message) {}
 void FileTracer::Fatal(const std::string &message) {}
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
-    
+
 void ConsoleTracer::Info(const std::string &message)
 {
   if (std_out_ == INVALID_HANDLE_VALUE)
@@ -26,11 +26,12 @@ void ConsoleTracer::Info(const std::string &message)
   WriteConsole(std_out_, message.c_str(), message.length(), &dwBytesWritten, NULL);
 };
 
-#endif //#if defined(WIN32) || #if defined(__MINGW32__) || #if defined(__MINGW64__)
+#endif // #if defined(WIN32) || #if defined(__MINGW32__) || #if defined(__MINGW64__)
 
 void ConsoleTracer::Debug(const std::string &message)
 {
   std::string header("Debug: ");
+  Info(header + message);
 }
 
 void ConsoleTracer::Warning(const std::string &message)
@@ -38,36 +39,18 @@ void ConsoleTracer::Warning(const std::string &message)
   std::string header("Warning: ");
 }
 
-void ConsoleTracer::Critical(const std::string &message)
-{
-  std::string header("CRITICAL: ");
-}
-
 void ConsoleTracer::Error(const std::string &message)
 {
   std::string header("ERROR: ");
+}
+
+void ConsoleTracer::Critical(const std::string &message)
+{
+  std::string header("CRITICAL: ");
 }
 
 void ConsoleTracer::Fatal(const std::string &message)
 {
   std::string header("*** FATAL ***: ");
   //*((char *)0) = 0xDEADBEAF;
-}
-
-void Log::configure(TraceType lt)
-{
-  switch (lt)
-  {
-  case TraceType::devnull:
-    instance_ = std::make_unique<VoidTracer>();
-    break;
-  case TraceType::console:
-    instance_ = std::make_unique<ConsoleTracer>();
-    break;
-  case TraceType::file:
-    instance_ = std::make_unique<FileTracer>();
-    break;
-  default:
-    break;
-  }
 }
