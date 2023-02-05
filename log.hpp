@@ -6,6 +6,7 @@
 #error "Designed for GCC only"
 #endif
 
+#include <mutex>
 #include <iostream>
 #include <memory>
 #include <fmt/format.h>
@@ -13,6 +14,7 @@
 
 //! Macroses for simple usage.
 #define LOG(...) LOG_INFO(__VA_ARGS__)
+#define LOG_LEVEL(x) Log::get().set_level(x)
 #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __VA_ARGS__)
 #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __VA_ARGS__)
 
@@ -35,10 +37,8 @@ enum class TraceSeverity
   info = 1,
   warning = 2,
   error = 4,
-#if defined(__ARM_EABI__)
   critical = 8,
   fatal = 16,
-#endif
   debug = 32
 };
 
@@ -135,12 +135,12 @@ public:
   /**
    * @brief Get an instance of a logger.
    *
-   * @param type A decired tracer type.
+   * @param type A desired tracer type.
    * @return Log& A logger's singletone instance
    */
-  static Log &get(TraceType type = TraceType::console)
+  static Log &get()
   {
-    static Log instance(type);
+    static Log instance;
     return instance;
   }
 
@@ -175,45 +175,19 @@ public:
       break;
     }
   }
-
   /**
-   * @brief Set decired logger's level
+   * @brief Set desired logger's level
    *
    * @param level A severity level.
    */
-  void set_level(TraceSeverity level)
-  {
-    // set the bit corresponding to the given severity and all lower severity levels
-    logging_level_ |= static_cast<uint32_t>(level) | static_cast<uint32_t>(TraceSeverity::info);
-  }
+  void set_level(TraceSeverity level);
+
+  //! Configures enabled tracer.
+  void configure(TraceType lt);
 
 private:
   //! Hidden singletone constructor.
-  Log(TraceType type = TraceType::console)
-      : logging_level_(0)
-  {
-    configure(TraceType::console);
-  }
-
-  //! Configures enabled tracer.
-  void configure(TraceType lt)
-  {
-    switch (lt)
-    {
-    case TraceType::devnull:
-      instance_ = std::make_unique<VoidTracer>();
-      break;
-    case TraceType::console:
-      instance_ = std::make_unique<ConsoleTracer>();
-      break;
-    case TraceType::file:
-      instance_ = std::make_unique<FileTracer>();
-      break;
-    default:
-      // not implemented yet
-      break;
-    }
-  }
+  Log();
 
   /**
    * @brief Checks against enable severity levels.
@@ -222,11 +196,7 @@ private:
    * @return true if level is enabled.
    * @return false if level is muted.
    */
-  bool is_severity_enabled(TraceSeverity level)
-  {
-    // check if the bit corresponding to the given severity is set
-    return (logging_level_ & static_cast<uint32_t>(level)) != 0;
-  }
+  bool is_severity_enabled(TraceSeverity level);
 
   //! Stores enabled severity level.
   uint32_t logging_level_;

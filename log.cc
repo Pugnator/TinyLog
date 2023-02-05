@@ -54,3 +54,40 @@ void ConsoleTracer::Fatal(const std::string &message)
   std::string header("*** FATAL ***: ");
   //*((char *)0) = 0xDEADBEAF;
 }
+
+Log::Log()
+{
+  set_level(TraceSeverity::info);
+  configure(TraceType::console);
+}
+
+void Log::set_level(TraceSeverity level)
+{
+  // set the bit corresponding to the given severity and all lower severity levels
+  logging_level_ |= static_cast<uint32_t>(level) | static_cast<uint32_t>(TraceSeverity::info);
+}
+
+bool Log::is_severity_enabled(TraceSeverity level)
+{
+  // check if the bit corresponding to the given severity is set
+  return (logging_level_ & static_cast<uint32_t>(level)) != 0;
+}
+
+void Log::configure(TraceType lt)
+{
+  switch (lt)
+  {
+  case TraceType::devnull:
+    instance_ = std::make_unique<VoidTracer>();
+    break;
+  case TraceType::console:
+    instance_ = std::make_unique<ConsoleTracer>();
+    break;
+  case TraceType::file:
+    instance_ = std::make_unique<FileTracer>();
+    break;
+  default:
+    // not implemented yet
+    break;
+  }
+}
