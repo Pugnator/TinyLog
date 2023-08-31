@@ -13,13 +13,22 @@
 #include <memory>
 #include <windows.h>
 
-//! Macroses for simple usage.
+
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
+#include <windows.h>
+#endif
+
+#ifdef __linux__
+#include <iostream>
+#endif
+
+//! Macross for simple usage.
 #define LOG(...) LOG_INFO(__VA_ARGS__)
 #define LOG_LEVEL(x) Log::get().set_level(x)
 #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __VA_ARGS__)
 #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __VA_ARGS__)
 
-//! A tracer type class enumerator.
+//! A tracer-type class enumerator.
 enum class TraceType
 {
   devnull,

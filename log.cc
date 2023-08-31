@@ -52,6 +52,13 @@ void ConsoleTracer::Info(const std::string &message)
 
 #endif // #if defined(WIN32) || #if defined(__MINGW32__) || #if defined(__MINGW64__)
 
+#ifdef __linux__
+void ConsoleTracer::Info(const std::string &message)
+{
+    std::cout << message;
+}
+#endif
+
 void ConsoleTracer::Debug(const std::string &message)
 {
   std::string header("Debug: ");
