@@ -3,7 +3,7 @@
 /*! \file A simple logger implementation */
 
 #if !defined(__GNUC__) && !defined(__clang__)
-#error "Designed for GCC only"
+#error "Designed for GCC 13+ only"
 #endif
 
 #include <mutex>
@@ -11,7 +11,6 @@
 #include <fstream>
 #include <filesystem>
 #include <memory>
-#include <fmt/format.h>
 #include <windows.h>
 
 //! Macroses for simple usage.
@@ -175,7 +174,7 @@ public:
       // This channel is muted.
       return;
     }
-    std::string message = fmt::vformat(format, fmt::make_format_args(args...));
+    std::string message = std::vformat(format, std::make_format_args(args...));
     switch (severity)
     {
     case TraceSeverity::info:
