@@ -7,12 +7,9 @@
 #endif
 
 #include <mutex>
-#include <iostream>
 #include <fstream>
 #include <filesystem>
-#include <memory>
-#include <windows.h>
-
+#include <format>
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 #include <windows.h>
