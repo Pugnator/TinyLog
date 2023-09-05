@@ -1,26 +1,15 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.21)
 
 project(tinyLog LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
 set(BUILD_SHARED_LIBS TRUE)
 
-set(DEBUG_ENABLE 1)
-
-if(DEBUG_ENABLE)
-    set(CODE_COVERAGE "-fprofile-arcs -ftest-coverage")
-    set(LIBCODE_COVERAGE "-lgcov --coverage")
-    set(OPTIM "-g -Og")
-    add_definitions(-DWAKA_DEBUG)
-else()
-    set(OPTIM "-Ofast")
-    add_definitions(-DWAKA_RELEASE)
-endif()
-
+set(OPTIM "-Ofast")
 set(CFLAGS "${CFLAGS} ${OPTIM}")
 set(CXXFLAGS "${CXXFLAGS} ${OPTIM}")
 
