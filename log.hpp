@@ -120,6 +120,7 @@ public:
 };
 
 //! A console/terminal tracer.
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 class ConsoleTracer : public Tracer
 {
 public:
@@ -143,6 +144,31 @@ private:
   //! A handle to a terminal.
   HANDLE std_out_;
 };
+#else
+class ConsoleTracer : public Tracer
+{
+public:
+  ConsoleTracer()
+  {
+    SetConsoleOutputCP(65001);
+    std_out_ = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (std_out_ == INVALID_HANDLE_VALUE)
+    {
+      // what to do here?
+    }
+  }
+  void Info(const std::string &message) override;
+  void Debug(const std::string &message) override;
+  void Warning(const std::string &message) override;
+  void Critical(const std::string &message) override;
+  void Error(const std::string &message) override;
+  void Fatal(const std::string &message) override;
+
+private:
+  //! A handle to a terminal.
+  HANDLE std_out_;
+};
+#endif
 
 //! A log singletone facade.
 class Log

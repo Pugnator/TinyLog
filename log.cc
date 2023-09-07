@@ -39,7 +39,6 @@ void FileTracer::Fatal(const std::string &message)
 }
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
-
 void ConsoleTracer::Info(const std::string &message)
 {
   if (std_out_ == INVALID_HANDLE_VALUE)
@@ -49,10 +48,7 @@ void ConsoleTracer::Info(const std::string &message)
   DWORD dwBytesWritten;
   WriteConsole(std_out_, message.c_str(), message.length(), &dwBytesWritten, NULL);
 };
-
-#endif // #if defined(WIN32) || #if defined(__MINGW32__) || #if defined(__MINGW64__)
-
-#ifdef __linux__
+#else
 void ConsoleTracer::Info(const std::string &message)
 {
     std::cout << message;
@@ -93,12 +89,14 @@ void ConsoleTracer::Fatal(const std::string &message)
 Log::Log()
 {
   set_level(TraceSeverity::info);
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
   HMODULE isFromDll = GetModuleHandle(NULL);
   if (!isFromDll)
   {
     configure(TraceType::file);
   }
   else
+#endif
     configure(TraceType::console);
 }
 
