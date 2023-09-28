@@ -22,8 +22,11 @@
 //! Macross for simple usage.
 #define LOG(...) LOG_INFO(__VA_ARGS__)
 #define LOG_LEVEL(x) Log::get().set_level(x)
+// #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+// #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __VA_ARGS__)
 #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __VA_ARGS__)
+#define LOG_CALL(...) Log::get().log(TraceSeverity::verbose, __VA_ARGS__)
 
 //! A tracer-type class enumerator.
 enum class TraceType
@@ -44,9 +47,9 @@ enum class TraceSeverity
   info = 1,
   warning = 2,
   error = 4,
-  critical = 8,
-  fatal = 16,
-  debug = 32
+  debug = 8,
+  verbose = 16,
+  critical = 32,
 };
 
 //! A tracer abstract interface.
@@ -89,12 +92,18 @@ class FileTracer : public Tracer
 public:
   FileTracer(const std::filesystem::path &filepath = "log.txt")
   {
+    file_handle_ = std::ofstream(filepath, std::ios::app);
     if (!file_handle_.is_open())
     {
       // what to do here?
     }
-    file_handle_ = std::ofstream(filepath, std::ios::app);
   }
+
+  ~FileTracer()
+  {
+    file_handle_.close();
+  }
+
   void Info(const std::string &message) override;
   void Debug(const std::string &message) override;
   void Warning(const std::string &message) override;
@@ -147,10 +156,9 @@ private:
 #else
 class ConsoleTracer : public Tracer
 {
+
 public:
-  ConsoleTracer()
-  {   
-  }
+  ConsoleTracer(){};
   void Info(const std::string &message) override;
   void Debug(const std::string &message) override;
   void Warning(const std::string &message) override;
@@ -164,13 +172,9 @@ public:
 class Log
 {
 public:
-  Log(Log const &) = delete;
-  void operator=(Log const &) = delete;
-
   /**
    * @brief Get an instance of a logger.
    *
-   * @param type A desired tracer type.
    * @return Log& A logger's singletone instance
    */
   static Log &get()
@@ -216,13 +220,27 @@ public:
    * @param level A severity level.
    */
   void set_level(TraceSeverity level);
+  /**
+   * @brief Clear desired logger's level
+   *
+   * @param level A severity level.
+   */
+  void clear_level(TraceSeverity level);
+  /**
+   * @brief Reset all logger's levels
+   *
+   */
+  void reset_levels();
 
   //! Configures enabled tracer.
   void configure(TraceType lt);
 
 private:
-  //! Hidden singletone constructor.
   Log();
+  Log(Log const &) = delete;
+  Log(Log &&) = delete;
+  Log &operator=(Log const &) = delete;
+  Log &operator=(Log &&) = delete;
 
   /**
    * @brief Checks against enable severity levels.
