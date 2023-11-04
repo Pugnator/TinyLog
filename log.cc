@@ -14,32 +14,29 @@ void FileTracer::Info(const std::string &message)
   std::tm tm = *std::localtime(&t);
   // Write the log message to the file
   file_handle_ << std::put_time(&tm, "[%Y-%m-%d %H:%M:%S] ") << message;
+  file_handle_.flush();
 }
 
 void FileTracer::Debug(const std::string &message)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
+{  
   std::string header("Debug: ");
   Info(header + message);
 }
 
 void FileTracer::Warning(const std::string &message)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
+{ 
   std::string header("Warning: ");
   Info(header + message);
 }
 
 void FileTracer::Critical(const std::string &message)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
+{ 
   std::string header("CRITICAL: ");
   Info(header + message);
 }
 
 void FileTracer::Error(const std::string &message)
 {
-  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("ERROR: ");
   Info(header + message);
 }
