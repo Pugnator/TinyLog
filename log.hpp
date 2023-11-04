@@ -23,8 +23,11 @@
 //! Macross for simple usage.
 #define LOG(...) LOG_INFO(__VA_ARGS__)
 #define LOG_LEVEL(x) Log::get().set_level(x)
+// #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+// #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __VA_ARGS__)
 #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __VA_ARGS__)
+#define LOG_CALL(...) Log::get().log(TraceSeverity::verbose, __VA_ARGS__)
 
 //! A tracer-type class enumerator.
 enum class TraceType
@@ -45,9 +48,9 @@ enum class TraceSeverity
   info = 1,
   warning = 2,
   error = 4,
-  critical = 8,
-  fatal = 16,
-  debug = 32
+  debug = 8,
+  verbose = 16,
+  critical = 32,
 };
 
 //! A tracer abstract interface.
@@ -129,6 +132,7 @@ public:
 };
 
 //! A console/terminal tracer.
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 class ConsoleTracer : public Tracer
 {
 public:
@@ -154,18 +158,28 @@ private:
   //! A mutex to protect terminal.
   std::mutex mutex_;
 };
+#else
+class ConsoleTracer : public Tracer
+{
+
+public:
+  ConsoleTracer(){};
+  void Info(const std::string &message) override;
+  void Debug(const std::string &message) override;
+  void Warning(const std::string &message) override;
+  void Critical(const std::string &message) override;
+  void Error(const std::string &message) override;
+  void Fatal(const std::string &message) override;
+};
+#endif
 
 //! A log singletone facade.
 class Log
 {
 public:
-  Log(Log const &) = delete;
-  void operator=(Log const &) = delete;
-
   /**
    * @brief Get an instance of a logger.
    *
-   * @param type A desired tracer type.
    * @return Log& A logger's singletone instance
    */
   static Log &get()
@@ -211,13 +225,27 @@ public:
    * @param level A severity level.
    */
   void set_level(TraceSeverity level);
+  /**
+   * @brief Clear desired logger's level
+   *
+   * @param level A severity level.
+   */
+  void clear_level(TraceSeverity level);
+  /**
+   * @brief Reset all logger's levels
+   *
+   */
+  void reset_levels();
 
   //! Configures enabled tracer.
   void configure(TraceType lt);
 
 private:
-  //! Hidden singletone constructor.
   Log();
+  Log(Log const &) = delete;
+  Log(Log &&) = delete;
+  Log &operator=(Log const &) = delete;
+  Log &operator=(Log &&) = delete;
 
   /**
    * @brief Checks against enable severity levels.
