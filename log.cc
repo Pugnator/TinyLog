@@ -9,6 +9,7 @@ void VoidTracer::Fatal(const std::string &message) {}
 
 void FileTracer::Info(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::time_t t = std::time(nullptr);
   std::tm tm = *std::localtime(&t);
   // Write the log message to the file
@@ -16,21 +17,25 @@ void FileTracer::Info(const std::string &message)
 }
 void FileTracer::Debug(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("Debug: ");
   Info(header + message);
 }
 void FileTracer::Warning(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("Warning: ");
   Info(header + message);
 }
 void FileTracer::Critical(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("CRITICAL: ");
   Info(header + message);
 }
 void FileTracer::Error(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("ERROR: ");
   Info(header + message);
 }
@@ -42,6 +47,7 @@ void FileTracer::Fatal(const std::string &message)
 
 void ConsoleTracer::Info(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
   {
     return;
@@ -55,36 +61,41 @@ void ConsoleTracer::Info(const std::string &message)
 #ifdef __linux__
 void ConsoleTracer::Info(const std::string &message)
 {
-    std::cout << message;
+  std::cout << message;
 }
 #endif
 
 void ConsoleTracer::Debug(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("Debug: ");
   Info(header + message);
 }
 
 void ConsoleTracer::Warning(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("Warning: ");
   Info(header + message);
 }
 
 void ConsoleTracer::Error(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("ERROR: ");
   Info(header + message);
 }
 
 void ConsoleTracer::Critical(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("CRITICAL: ");
   Info(header + message);
 }
 
 void ConsoleTracer::Fatal(const std::string &message)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::string header("*** FATAL ***: ");
   Info(header + message);
   //*((char *)0) = 0xDEADBEAF;
@@ -125,7 +136,7 @@ void Log::configure(TraceType lt)
     instance_ = std::make_unique<ConsoleTracer>();
     break;
   case TraceType::file:
-    //provide some kind of a log file path here
+    // provide some kind of a log file path here
     instance_ = std::make_unique<FileTracer>();
     break;
   default:

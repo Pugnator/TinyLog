@@ -10,6 +10,7 @@
 #include <fstream>
 #include <filesystem>
 #include <format>
+#include <mutex>
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 #include <windows.h>
@@ -89,12 +90,18 @@ class FileTracer : public Tracer
 public:
   FileTracer(const std::filesystem::path &filepath = "log.txt")
   {
+    file_handle_ = std::ofstream(filepath, std::ios::app);
     if (!file_handle_.is_open())
     {
       // what to do here?
     }
-    file_handle_ = std::ofstream(filepath, std::ios::app);
   }
+
+  ~FileTracer()
+  {
+    file_handle_.close();
+  }
+
   void Info(const std::string &message) override;
   void Debug(const std::string &message) override;
   void Warning(const std::string &message) override;
@@ -105,6 +112,8 @@ public:
 private:
   //! A handle to a filestream.
   std::ofstream file_handle_;
+  //! A mutex to protect filestream.
+   std::mutex mutex_;
 };
 
 //! A void tracer. Used when you want to silent all message or there is nowhere to output.
@@ -142,6 +151,8 @@ public:
 private:
   //! A handle to a terminal.
   HANDLE std_out_;
+  //! A mutex to protect terminal.
+  std::mutex mutex_;
 };
 
 //! A log singletone facade.
