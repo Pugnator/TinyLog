@@ -116,7 +116,7 @@ private:
   //! A handle to a filestream.
   std::ofstream file_handle_;
   //! A mutex to protect filestream.
-   std::mutex mutex_;
+  std::mutex mutex_;
 };
 
 //! A void tracer. Used when you want to silent all message or there is nowhere to output.
@@ -132,18 +132,19 @@ public:
 };
 
 //! A console/terminal tracer.
-#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 class ConsoleTracer : public Tracer
 {
 public:
   ConsoleTracer()
   {
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
     SetConsoleOutputCP(65001);
     std_out_ = GetStdHandle(STD_OUTPUT_HANDLE);
     if (std_out_ == INVALID_HANDLE_VALUE)
     {
       // what to do here?
     }
+#endif
   }
   void Info(const std::string &message) override;
   void Debug(const std::string &message) override;
@@ -153,25 +154,13 @@ public:
   void Fatal(const std::string &message) override;
 
 private:
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
   //! A handle to a terminal.
   HANDLE std_out_;
+#endif
   //! A mutex to protect terminal.
   std::mutex mutex_;
 };
-#else
-class ConsoleTracer : public Tracer
-{
-
-public:
-  ConsoleTracer(){};
-  void Info(const std::string &message) override;
-  void Debug(const std::string &message) override;
-  void Warning(const std::string &message) override;
-  void Critical(const std::string &message) override;
-  void Error(const std::string &message) override;
-  void Fatal(const std::string &message) override;
-};
-#endif
 
 //! A log singletone facade.
 class Log
