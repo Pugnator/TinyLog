@@ -27,6 +27,9 @@
 // #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __VA_ARGS__)
 #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __VA_ARGS__)
+#define LOG_EXCEPTION(description, exception) \
+  Log::get().log(TraceSeverity::debug, "{}: {} at {} {}:{}\n", description, exception.what(), __PRETTY_FUNCTION__, __FILE__, __LINE__)
+
 #define LOG_CALL(...) Log::get().log(TraceSeverity::verbose, __VA_ARGS__)
 
 //! A tracer-type class enumerator.
