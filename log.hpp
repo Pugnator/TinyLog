@@ -23,10 +23,11 @@
 //! Macross for simple usage.
 #define LOG(...) LOG_INFO(__VA_ARGS__)
 #define LOG_LEVEL(x) Log::get().set_level(x)
-// #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
-// #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
 #define LOG_INFO(...) Log::get().log(TraceSeverity::info, __VA_ARGS__)
 #define LOG_DEBUG(...) Log::get().log(TraceSeverity::debug, __VA_ARGS__)
+#define LOG_EXCEPTION(description, exception) \
+  Log::get().log(TraceSeverity::debug, "{}: {} at {} {}:{}\n", description, exception.what(), __PRETTY_FUNCTION__, __FILE__, __LINE__)
+
 #define LOG_CALL(...) Log::get().log(TraceSeverity::verbose, __VA_ARGS__)
 
 //! A tracer-type class enumerator.
@@ -96,7 +97,7 @@ public:
     file_handle_ = std::ofstream(filepath, std::ios::app);
     if (!file_handle_.is_open())
     {
-      // what to do here?
+      throw std::runtime_error("Failed to open log file");
     }
   }
 
@@ -116,7 +117,7 @@ private:
   //! A handle to a filestream.
   std::ofstream file_handle_;
   //! A mutex to protect filestream.
-   std::mutex mutex_;
+  std::mutex mutex_;
 };
 
 //! A void tracer. Used when you want to silent all message or there is nowhere to output.
@@ -132,18 +133,19 @@ public:
 };
 
 //! A console/terminal tracer.
-#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 class ConsoleTracer : public Tracer
 {
 public:
   ConsoleTracer()
   {
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
     SetConsoleOutputCP(65001);
     std_out_ = GetStdHandle(STD_OUTPUT_HANDLE);
     if (std_out_ == INVALID_HANDLE_VALUE)
     {
       // what to do here?
     }
+#endif
   }
   void Info(const std::string &message) override;
   void Debug(const std::string &message) override;
@@ -153,25 +155,13 @@ public:
   void Fatal(const std::string &message) override;
 
 private:
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
   //! A handle to a terminal.
   HANDLE std_out_;
+#endif
   //! A mutex to protect terminal.
   std::mutex mutex_;
 };
-#else
-class ConsoleTracer : public Tracer
-{
-
-public:
-  ConsoleTracer(){};
-  void Info(const std::string &message) override;
-  void Debug(const std::string &message) override;
-  void Warning(const std::string &message) override;
-  void Critical(const std::string &message) override;
-  void Error(const std::string &message) override;
-  void Fatal(const std::string &message) override;
-};
-#endif
 
 //! A log singletone facade.
 class Log
@@ -224,21 +214,21 @@ public:
    *
    * @param level A severity level.
    */
-  void set_level(TraceSeverity level);
+  Log& set_level(TraceSeverity level);
   /**
    * @brief Clear desired logger's level
    *
    * @param level A severity level.
    */
-  void clear_level(TraceSeverity level);
+  Log& clear_level(TraceSeverity level);
   /**
    * @brief Reset all logger's levels
    *
    */
-  void reset_levels();
+  Log& reset_levels();
 
   //! Configures enabled tracer.
-  void configure(TraceType lt);
+  Log& configure(TraceType lt);
 
 private:
   Log();

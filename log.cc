@@ -163,14 +163,16 @@ Log::Log()
     configure(TraceType::console);
 }
 
-void Log::set_level(TraceSeverity level)
+Log& Log::set_level(TraceSeverity level)
 {
   logging_level_ |= static_cast<uint32_t>(level);
+  return *this;
 }
 
-void Log::clear_level(TraceSeverity level)
+Log& Log::clear_level(TraceSeverity level)
 {
   logging_level_ &= ~static_cast<uint32_t>(level);
+  return *this;
 }
 
 bool Log::is_severity_enabled(TraceSeverity level)
@@ -178,12 +180,13 @@ bool Log::is_severity_enabled(TraceSeverity level)
   return (logging_level_ & static_cast<uint32_t>(level)) != 0;
 }
 
-void Log::reset_levels()
+Log& Log::reset_levels()
 {
   logging_level_ = 0;
+  return *this;
 }
 
-void Log::configure(TraceType lt)
+Log& Log::configure(TraceType lt)
 {
   switch (lt)
   {
@@ -201,4 +204,5 @@ void Log::configure(TraceType lt)
     // not implemented yet
     break;
   }
+  return *this;
 }
