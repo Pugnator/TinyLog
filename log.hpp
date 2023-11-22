@@ -94,10 +94,16 @@ class FileTracer : public Tracer
 public:
   FileTracer(const std::filesystem::path &filepath = "log.txt")
   {
+    std::filesystem::path parentPath = filepath.parent_path();
+    if (!parentPath.empty())
+    {
+      std::filesystem::create_directories(parentPath);
+    }
     file_handle_ = std::ofstream(filepath, std::ios::app);
     if (!file_handle_.is_open())
     {
-      throw std::runtime_error("Failed to open log file");
+      std::perror(("Error opening log file: " + filepath.string()).c_str());
+      throw std::runtime_error("Failed to open log file: " + filepath.string());
     }
   }
 
@@ -214,21 +220,21 @@ public:
    *
    * @param level A severity level.
    */
-  Log& set_level(TraceSeverity level);
+  Log &set_level(TraceSeverity level);
   /**
    * @brief Clear desired logger's level
    *
    * @param level A severity level.
    */
-  Log& clear_level(TraceSeverity level);
+  Log &clear_level(TraceSeverity level);
   /**
    * @brief Reset all logger's levels
    *
    */
-  Log& reset_levels();
+  Log &reset_levels();
 
   //! Configures enabled tracer.
-  Log& configure(TraceType lt);
+  Log &configure(TraceType lt);
 
 private:
   Log();
