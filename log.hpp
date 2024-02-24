@@ -2,10 +2,6 @@
 
 /*! \file A simple logger implementation */
 
-#if !defined(__GNUC__) && !defined(__clang__)
-#error "Designed for GCC 13+ only"
-#endif
-
 #include <mutex>
 #include <fstream>
 #include <filesystem>
