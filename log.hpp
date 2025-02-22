@@ -2,15 +2,12 @@
 
 /*! \file A simple logger implementation */
 
-#if !defined(__GNUC__) && !defined(__clang__)
-#error "Designed for GCC 13+ only"
-#endif
-
 #include <mutex>
 #include <fstream>
-#include <filesystem>
 #include <format>
 #include <mutex>
+#include <memory>
+#include <iomanip>
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 #include <windows.h>
@@ -92,8 +89,8 @@ public:
 class FileTracer : public Tracer
 {
 public:
-  FileTracer(const std::filesystem::path &filepath = "log.txt")
-  {
+  FileTracer(const std::string &filepath = "log.txt")
+  {   
     file_handle_ = std::ofstream(filepath, std::ios::app);
     if (!file_handle_.is_open())
     {
