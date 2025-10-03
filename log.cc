@@ -1,4 +1,24 @@
 #include "log.hpp"
+#include <chrono>
+#include <ctime>
+#include <sstream>
+
+namespace
+{
+  std::string current_timestamp()
+  {
+    std::time_t now = std::time(nullptr);
+    std::tm tm_snapshot{};
+#if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
+    localtime_s(&tm_snapshot, &now);
+#else
+    localtime_r(&now, &tm_snapshot);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm_snapshot, "[%Y-%m-%d %H:%M:%S] ");
+    return oss.str();
+  }
+}
 
 void VoidTracer::Info(const std::string &message) {}
 void VoidTracer::Debug(const std::string &message) {}
@@ -10,10 +30,7 @@ void VoidTracer::Fatal(const std::string &message) {}
 void FileTracer::Info(const std::string &message)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  std::time_t t = std::time(nullptr);
-  std::tm tm = *std::localtime(&t);
-  // Write the log message to the file
-  file_handle_ << std::put_time(&tm, "[%Y-%m-%d %H:%M:%S] ") << message;
+  file_handle_ << current_timestamp() << message;
   file_handle_.flush();
 }
 
@@ -55,7 +72,8 @@ void ConsoleTracer::Info(const std::string &message)
 
   SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_GREEN | FOREGROUND_BLUE);
   DWORD dwBytesWritten;
-  WriteConsole(std_out_, message.c_str(), message.length(), &dwBytesWritten, NULL);
+  const std::string formatted = current_timestamp() + message;
+  WriteConsoleA(std_out_, formatted.c_str(), static_cast<DWORD>(formatted.length()), &dwBytesWritten, NULL);
 }
 
 void ConsoleTracer::Debug(const std::string &message)
@@ -109,7 +127,8 @@ void ConsoleTracer::Fatal(const std::string &message)
 
 void ConsoleTracer::Info(const std::string &message)
 {
-  std::cout << message;
+  const std::string formatted = current_timestamp() + message;
+  std::cout << formatted;
 }
 
 void ConsoleTracer::Debug(const std::string &message)
