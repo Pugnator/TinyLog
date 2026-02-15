@@ -201,8 +201,14 @@ public:
     case TraceSeverity::debug:
       instance_->Debug(message);
       break;
+    case TraceSeverity::warning:
+      instance_->Warning(message);
+      break;
+    case TraceSeverity::error:
+      instance_->Error(message);
+      break;
     default:
-      // not implemented yet
+      instance_->Info(message);
       break;
     }
   }
