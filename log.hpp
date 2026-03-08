@@ -233,6 +233,9 @@ public:
   //! Configures enabled tracer.
   Log& configure(TraceType lt);
 
+  //! Configures file tracer with a custom path.
+  Log& configure(TraceType lt, const std::string &filepath);
+
 private:
   Log();
   Log(Log const &) = delete;

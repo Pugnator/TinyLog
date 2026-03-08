@@ -216,12 +216,24 @@ Log& Log::configure(TraceType lt)
     instance_ = std::make_unique<ConsoleTracer>();
     break;
   case TraceType::file:
-    // provide some kind of a log file path here
     instance_ = std::make_unique<FileTracer>();
     break;
   default:
     // not implemented yet
     break;
+  }
+  return *this;
+}
+
+Log& Log::configure(TraceType lt, const std::string &filepath)
+{
+  if (lt == TraceType::file && !filepath.empty())
+  {
+    instance_ = std::make_unique<FileTracer>(filepath);
+  }
+  else
+  {
+    configure(lt);
   }
   return *this;
 }
