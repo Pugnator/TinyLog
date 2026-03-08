@@ -3,11 +3,16 @@
 /*! \file A simple logger implementation */
 
 #include <mutex>
+#include <shared_mutex>
 #include <fstream>
 #include <format>
 #include <mutex>
 #include <memory>
 #include <iomanip>
+#include <string>
+#include <cstdint>
+#include <atomic>
+#include <filesystem>
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
 #include <windows.h>
@@ -51,6 +56,17 @@ enum class TraceSeverity
   critical = 32,
 };
 
+//! Configuration for log-file rotation and compression.
+struct RotationConfig
+{
+  //! Maximum size in bytes before rotation is triggered. 0 = no size limit.
+  std::size_t max_file_size = 0;
+  //! Maximum number of rotated (back-up) files to keep. 0 = unlimited.
+  std::size_t max_backup_count = 5;
+  //! Compress rotated files with zstd (maximum compression level).
+  bool compress = false;
+};
+
 //! A tracer abstract interface.
 class Tracer
 {
@@ -85,23 +101,13 @@ public:
   virtual void Fatal(const std::string &message) = 0;
 };
 
-//! A file tracer. Logs messages to a file.
+//! A file tracer. Logs messages to a file with optional rotation & zstd compression.
 class FileTracer : public Tracer
 {
 public:
-  FileTracer(const std::string &filepath = "log.txt")
-  {   
-    file_handle_ = std::ofstream(filepath, std::ios::app);
-    if (!file_handle_.is_open())
-    {
-      throw std::runtime_error("Failed to open log file");
-    }
-  }
-
-  ~FileTracer()
-  {
-    file_handle_.close();
-  }
+  explicit FileTracer(const std::string &filepath = "log.txt",
+                      const RotationConfig &rotation = {});
+  ~FileTracer();
 
   void Info(const std::string &message) override;
   void Debug(const std::string &message) override;
@@ -111,6 +117,23 @@ public:
   void Fatal(const std::string &message) override;
 
 private:
+  //! Open (or re-open) the active log file.
+  void open_log_file();
+  //! Check whether the current file exceeds the size limit and rotate if needed.
+  void maybe_rotate();
+  //! Perform a single rotation step: close, rename, compress, prune.
+  void rotate();
+  //! Compress a file in-place using zstd at maximum compression level.
+  static bool compress_file_zstd(const std::filesystem::path &src);
+  //! Remove excess backup files beyond max_backup_count.
+  void prune_old_backups();
+
+  //! Path to the active log file.
+  std::filesystem::path filepath_;
+  //! Current number of bytes written since the file was opened.
+  std::size_t current_size_ = 0;
+  //! Rotation / compression configuration.
+  RotationConfig rotation_;
   //! A handle to a filestream.
   std::ofstream file_handle_;
   //! A mutex to protect filestream.
@@ -152,6 +175,9 @@ public:
   void Fatal(const std::string &message) override;
 
 private:
+  //! Internal write without locking – caller must hold mutex_.
+  void write_impl(const std::string &formatted);
+
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
   //! A handle to a terminal.
   HANDLE std_out_;
@@ -193,6 +219,7 @@ public:
       return;
     }
     std::string message = std::vformat(format, std::make_format_args(args...));
+    std::shared_lock<std::shared_mutex> lock(instance_mutex_);
     switch (severity)
     {
     case TraceSeverity::info:
@@ -206,6 +233,12 @@ public:
       break;
     case TraceSeverity::error:
       instance_->Error(message);
+      break;
+    case TraceSeverity::critical:
+      instance_->Critical(message);
+      break;
+    case TraceSeverity::verbose:
+      instance_->Info(message);
       break;
     default:
       instance_->Info(message);
@@ -236,6 +269,9 @@ public:
   //! Configures file tracer with a custom path.
   Log& configure(TraceType lt, const std::string &filepath);
 
+  //! Configures file tracer with a custom path and rotation settings.
+  Log& configure(TraceType lt, const std::string &filepath, const RotationConfig &rotation);
+
 private:
   Log();
   Log(Log const &) = delete;
@@ -252,8 +288,13 @@ private:
    */
   bool is_severity_enabled(TraceSeverity level);
 
-  //! Stores enabled severity level.
-  uint32_t logging_level_;
+  //! Internal configure without locking – caller must hold instance_mutex_.
+  void configure_impl(TraceType lt);
+
+  //! Stores enabled severity level (atomic for lock-free read/write).
+  std::atomic<uint32_t> logging_level_{0};
+  //! Protects instance_ for concurrent log/configure access.
+  mutable std::shared_mutex instance_mutex_;
   //! An instance of the actual worker tracer.
   std::unique_ptr<Tracer> instance_;
 };
