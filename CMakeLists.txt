@@ -7,8 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-set(BUILD_SHARED_LIBS TRUE)
 
 message(STATUS "C++ standard is ${CMAKE_CXX_STANDARD}")
 
@@ -27,12 +25,7 @@ add_subdirectory(vendor/zstd/build/cmake)
 
 set(CPPSRC
   log.cc
-  tiny.rc
 )
-
-if(WIN32)
-  list (APPEND CPPSRC dllmain.cc)
-endif()
 
 if (MSVC)
   set(
@@ -41,12 +34,12 @@ if (MSVC)
   )
 endif()
 
-add_library(tinyLog SHARED ${CPPSRC})
+add_library(tinyLog STATIC ${CPPSRC})
 set_property(TARGET tinyLog PROPERTY POSITION_INDEPENDENT_CODE 1)
 set_target_properties(tinyLog PROPERTIES LINKER_LANGUAGE CXX)
-
-set_target_properties(tinyLog PROPERTIES PREFIX "")
-set_target_properties(tinyLog PROPERTIES OUTPUT_NAME "logger")
+target_compile_options(tinyLog PRIVATE
+  $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/EHsc>
+)
 
 target_link_libraries(tinyLog PRIVATE libzstd_static)
 target_include_directories(tinyLog PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/zstd/lib)
