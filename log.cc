@@ -201,7 +201,10 @@ void FileTracer::prune_old_backups()
 void FileTracer::Info(const std::string &message)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  const std::string line = current_timestamp() + message;
+  std::string line = current_timestamp() + message;
+  // One entry per line, whether or not the caller ended the message with '\n'.
+  if (line.empty() || line.back() != '\n')
+    line.push_back('\n');
   file_handle_ << line;
   file_handle_.flush();
   current_size_ += line.size();
@@ -244,8 +247,13 @@ void ConsoleTracer::write_impl(const std::string &formatted)
 {
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
+  // Terminate the line here so callers need not remember to. Without this every
+  // log message runs into the next ("...starting[time] Using...").
+  std::string line = formatted;
+  if (line.empty() || line.back() != '\n')
+    line.push_back('\n');
   DWORD dwBytesWritten;
-  WriteConsoleA(std_out_, formatted.c_str(), static_cast<DWORD>(formatted.length()), &dwBytesWritten, NULL);
+  WriteConsoleA(std_out_, line.c_str(), static_cast<DWORD>(line.length()), &dwBytesWritten, NULL);
 }
 
 void ConsoleTracer::Info(const std::string &message)
