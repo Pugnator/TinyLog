@@ -161,10 +161,15 @@ public:
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
     SetConsoleOutputCP(65001);
     std_out_ = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (std_out_ == INVALID_HANDLE_VALUE)
-    {
-      // what to do here?
-    }
+    // A redirected stdout - a file, a pipe, a CI runner's capture - is a
+    // perfectly valid handle that is NOT a console screen buffer.
+    // WriteConsoleA fails on it, and with the return value unchecked every
+    // line was dropped in exactly the situation where the log was the only
+    // evidence there was (KaiwaLens #384). Decide once which write this
+    // handle needs; write_impl() uses WriteFile for everything else.
+    DWORD mode = 0;
+    console_ = std_out_ != nullptr && std_out_ != INVALID_HANDLE_VALUE &&
+               GetFileType(std_out_) == FILE_TYPE_CHAR && GetConsoleMode(std_out_, &mode) != 0;
 #endif
   }
   void Info(const std::string &message) override;
@@ -179,8 +184,11 @@ private:
   void write_impl(const std::string &formatted);
 
 #if ((defined(WIN32) || defined(__MINGW32__) || defined(__MINGW64__)))
-  //! A handle to a terminal.
+  //! stdout: a console screen buffer, or a file or pipe when redirected.
   HANDLE std_out_;
+  //! True only for a real console; colour attributes and WriteConsoleA
+  //! apply to nothing else.
+  bool console_ = false;
 #endif
   //! A mutex to protect terminal.
   std::mutex mutex_;

@@ -245,15 +245,34 @@ void FileTracer::Fatal(const std::string &message)
 
 void ConsoleTracer::write_impl(const std::string &formatted)
 {
-  if (std_out_ == INVALID_HANDLE_VALUE)
+  if (std_out_ == nullptr || std_out_ == INVALID_HANDLE_VALUE)
     return;
   // Terminate the line here so callers need not remember to. Without this every
   // log message runs into the next ("...starting[time] Using...").
   std::string line = formatted;
-  if (line.empty() || line.back() != '\n')
-    line.push_back('\n');
-  DWORD dwBytesWritten;
-  WriteConsoleA(std_out_, line.c_str(), static_cast<DWORD>(line.length()), &dwBytesWritten, NULL);
+  if (line.empty() || line.back() != '
+')
+    line.push_back('
+');
+  DWORD written = 0;
+  if (console_)
+  {
+    if (WriteConsoleA(std_out_, line.c_str(), static_cast<DWORD>(line.length()), &written, NULL))
+      return;
+    // The handle passed the console test and refused anyway: fall through
+    // to the byte-level write rather than lose the line.
+  }
+  // WriteFile is what a file or a pipe understands. It may write less than
+  // asked - a pipe's buffer is finite - so loop until the line is out.
+  const char *cursor = line.c_str();
+  DWORD remaining = static_cast<DWORD>(line.length());
+  while (remaining > 0)
+  {
+    if (!WriteFile(std_out_, cursor, remaining, &written, NULL) || written == 0)
+      return;
+    cursor += written;
+    remaining -= written;
+  }
 }
 
 void ConsoleTracer::Info(const std::string &message)
@@ -261,7 +280,8 @@ void ConsoleTracer::Info(const std::string &message)
   std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
-  SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_GREEN | FOREGROUND_BLUE);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_GREEN | FOREGROUND_BLUE);
   write_impl(current_timestamp() + message);
 }
 
@@ -270,7 +290,8 @@ void ConsoleTracer::Debug(const std::string &message)
   std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
-  SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_GREEN);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_GREEN);
   write_impl(current_timestamp() + "Debug: " + message);
 }
 
@@ -279,7 +300,8 @@ void ConsoleTracer::Warning(const std::string &message)
   std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
-  SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN);
   write_impl(current_timestamp() + "Warning: " + message);
 }
 
@@ -288,7 +310,8 @@ void ConsoleTracer::Error(const std::string &message)
   std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
-  SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_RED);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_RED);
   write_impl(current_timestamp() + "ERROR: " + message);
 }
 
@@ -297,7 +320,8 @@ void ConsoleTracer::Critical(const std::string &message)
   std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
-  SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_BLUE);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_BLUE);
   write_impl(current_timestamp() + "CRITICAL: " + message);
 }
 
@@ -306,9 +330,11 @@ void ConsoleTracer::Fatal(const std::string &message)
   std::lock_guard<std::mutex> lock(mutex_);
   if (std_out_ == INVALID_HANDLE_VALUE)
     return;
-  SetConsoleTextAttribute(std_out_, BACKGROUND_RED | FOREGROUND_INTENSITY | FOREGROUND_RED);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, BACKGROUND_RED | FOREGROUND_INTENSITY | FOREGROUND_RED);
   write_impl(current_timestamp() + "*** FATAL ***: " + message);
-  SetConsoleTextAttribute(std_out_, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+  if (console_)
+    SetConsoleTextAttribute(std_out_, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 }
 
 #else
