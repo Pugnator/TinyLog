@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, "[0-9]*-*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: "1"
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.cc }} ${{ matrix.build_type }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cc: gcc-13, cxx: g++-13, build_type: Debug }
+          - { cc: gcc-14, cxx: g++-14, build_type: Release }
+          - { cc: clang-18, cxx: clang++-18, build_type: Debug }
+          - { cc: clang-18, cxx: clang++-18, build_type: Release }
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          -DTINYLOG_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build -j4 --label-exclude perf
+      - name: Benchmark harness smoke run
+        run: ctest --test-dir build --label-regex perf
+
+  sanitizers:
+    name: Sanitizer ${{ matrix.sanitize }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitize: ["address,undefined", "thread"]
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      # TSan fails on kernels with high mmap randomization ("unexpected memory mapping").
+      - run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+          -DTINYLOG_SANITIZE=${{ matrix.sanitize }} -DTINYLOG_BUILD_SHARED=OFF -DTINYLOG_BUILD_BENCH=OFF
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build -j4
+        env:
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1
+          UBSAN_OPTIONS: print_stacktrace=1
+
+  windows-msvc:
+    name: Windows MSVC ${{ matrix.config }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DTINYLOG_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build --config ${{ matrix.config }} --parallel
+      - run: ctest --test-dir build -C ${{ matrix.config }} -j4 --label-exclude perf
+
+  windows-mingw:
+    name: Windows MinGW (UCRT64)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DTINYLOG_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build -j4 --label-exclude perf
+
+  macos:
+    name: macOS (AppleClang)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 -DTINYLOG_WARNINGS_AS_ERRORS=ON
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build -j4 --label-exclude perf
+
+  system-zstd:
+    name: Linux, system libzstd
+    runs-on: ubuntu-24.04
+    steps:
+      # No submodules: proves the build does not need vendor/zstd.
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libzstd-dev pkg-config
+      - run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DTINYLOG_USE_SYSTEM_ZSTD=ON -DTINYLOG_BUILD_BENCH=OFF
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build -j4
+
+  consumers:
+    name: Consumer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - name: Build and install
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTINYLOG_BUILD_TESTS=OFF -DTINYLOG_BUILD_BENCH=OFF
+          cmake --build build --config Release --parallel
+          cmake --install build --config Release --prefix "${{ github.workspace }}/prefix"
+      - name: find_package() consumer
+        run: |
+          cmake -S tests/consumer -B consumer-pkg -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ github.workspace }}/prefix"
+          cmake --build consumer-pkg --config Release
+          ctest --test-dir consumer-pkg -C Release
+      - name: add_subdirectory() consumer
+        run: |
+          cmake -S tests/consumer -B consumer-sub -DCMAKE_BUILD_TYPE=Release -DTINYLOG_CONSUMER_MODE=subdirectory
+          cmake --build consumer-sub --config Release
+          ctest --test-dir consumer-sub -C Release
+
+  benchmark:
+    name: Benchmark vs spdlog and Quill
+    runs-on: ubuntu-24.04
+    needs: linux
+    steps:
+      - uses: actions/checkout@v7
+        with: { submodules: recursive }
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+          -DTINYLOG_BUILD_TESTS=OFF -DTINYLOG_BENCH_COMPARE=ON
+      - run: cmake --build build -j4 --target tinylog_bench
+      - name: Run
+        run: |
+          ./build/bin/tinylog_bench --iterations 200000 --json bench.json --markdown bench.md
+          {
+            echo "## Benchmark (shared CI runner: compare within this table only)"
+            echo
+            cat bench.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-${{ github.sha }}
+          path: |
+            bench.json
+            bench.md

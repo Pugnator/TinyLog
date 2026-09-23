@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-singleton-logger-dll`  
 **Created**: 2026-03-08  
-**Status**: Draft  
+**Status**: Implemented and superseded by tinylog 0.2 (see README.md and CHANGELOG.md)  
 **Input**: User description: "Singleton-based C++20 logging library built as a Windows DLL with configurable trace backends, severity filtering, and cross-platform support"
 
 ## User Scenarios & Testing *(mandatory)*
