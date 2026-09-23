@@ -29,7 +29,7 @@ jobs:
           - { cc: clang-18, cxx: clang++-18, build_type: Debug }
           - { cc: clang-18, cxx: clang++-18, build_type: Release }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: Configure
@@ -51,7 +51,7 @@ jobs:
       matrix:
         sanitize: ["address,undefined", "thread"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - run: sudo apt-get update && sudo apt-get install -y ninja-build
       # TSan fails on kernels with high mmap randomization ("unexpected memory mapping").
@@ -75,7 +75,7 @@ jobs:
       matrix:
         config: [Debug, Release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DTINYLOG_WARNINGS_AS_ERRORS=ON
       - run: cmake --build build --config ${{ matrix.config }} --parallel
@@ -88,7 +88,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - uses: msys2/setup-msys2@v2
         with:
@@ -105,7 +105,7 @@ jobs:
     name: macOS (AppleClang)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - name: Configure
         run: >
@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # No submodules: proves the build does not need vendor/zstd.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y ninja-build libzstd-dev pkg-config
       - run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
@@ -135,7 +135,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-2022]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - name: Build and install
         run: |
@@ -158,7 +158,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: linux
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { submodules: recursive }
       - run: sudo apt-get update && sudo apt-get install -y ninja-build
       - run: >
@@ -174,7 +174,7 @@ jobs:
             echo
             cat bench.md
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: benchmark-${{ github.sha }}
           path: |
