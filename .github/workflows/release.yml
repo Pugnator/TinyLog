@@ -1,0 +1,72 @@
+name: Release
+
+# Push a tag "vX.Y.Z" matching project(VERSION) in CMakeLists.txt.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Tag must match CMakeLists.txt and CHANGELOG.md
+        run: |
+          version=$(sed -nE '/^project\(tinylog/,/\)/ s/^ *VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          tag="${GITHUB_REF_NAME#v}"
+          echo "CMake version: $version, tag: $tag"
+          test "$version" = "$tag"
+          grep -q "^## \[$version\]" CHANGELOG.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: check-version
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { name: windows-x64-msvc, os: windows-2022 }
+          - { name: linux-x64, os: ubuntu-24.04 }
+          - { name: macos-arm64, os: macos-15 }
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 -DTINYLOG_BUILD_BENCH=OFF
+          cmake --build build --config Release --parallel
+          ctest --test-dir build -C Release -j4
+      - name: Package
+        shell: bash
+        run: |
+          cd build
+          cpack -C Release -D CPACK_PACKAGE_FILE_NAME=tinylog-${{ needs.check-version.outputs.version }}-${{ matrix.name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: build/tinylog-*.*
+
+  publish:
+    needs: [check-version, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="${{ needs.check-version.outputs.version }}" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }' CHANGELOG.md > notes.md
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "tinylog $GITHUB_REF_NAME" --notes-file notes.md

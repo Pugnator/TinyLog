@@ -1,0 +1,8 @@
+# Matches the existing style: 2-space indent, braces on their own line.
+BasedOnStyle: Microsoft
+IndentWidth: 2
+ColumnLimit: 120
+NamespaceIndentation: All
+AccessModifierOffset: -2
+PointerAlignment: Right
+SortIncludes: false

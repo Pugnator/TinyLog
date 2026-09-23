@@ -1,0 +1,20 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+if(@TINYLOG_USE_SYSTEM_ZSTD@)
+  find_dependency(zstd CONFIG)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/tinylogTargets.cmake")
+
+# Installed names: tinylog::tinylog (static) and tinylog::shared.
+# tinylog::tinylog falls back to the shared library when no static one was installed.
+if(NOT TARGET tinylog::tinylog AND TARGET tinylog::shared)
+  add_library(tinylog::tinylog ALIAS tinylog::shared)
+endif()
+if(NOT TARGET tinylog::static AND TARGET tinylog::tinylog AND NOT TARGET tinylog::shared)
+  add_library(tinylog::static ALIAS tinylog::tinylog)
+endif()
+
+check_required_components(tinylog)
