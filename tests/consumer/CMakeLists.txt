@@ -6,7 +6,8 @@ project(tinylog_consumer LANGUAGES CXX)
 
 set(TINYLOG_CONSUMER_MODE package CACHE STRING "package or subdirectory")
 if(TINYLOG_CONSUMER_MODE STREQUAL "package")
-  find_package(tinylog 0.2 REQUIRED)
+  # Before 1.0 only the same minor version is compatible (see README, Versioning).
+  find_package(tinylog 0.5 REQUIRED)
 else()
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../.. tinylog)
 endif()

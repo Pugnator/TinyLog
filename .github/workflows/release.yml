@@ -51,7 +51,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
-          path: build/tinylog-*.*
+          # The archives only: the Visual Studio generator also leaves object
+          # folders such as build/tinylog-cat.dir, which a wider pattern takes.
+          path: |
+            build/tinylog-*.zip
+            build/tinylog-*.tar.gz
 
   publish:
     needs: [check-version, package]
@@ -69,4 +73,7 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "tinylog $GITHUB_REF_NAME" --notes-file notes.md
+        run: |
+          # Files only: gh cannot upload a directory, and fails the release on one.
+          mapfile -t assets < <(find dist -type f)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --title "tinylog $GITHUB_REF_NAME" --notes-file notes.md
