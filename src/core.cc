@@ -585,11 +585,32 @@ namespace tinylog::detail
   void vlog(Level level, const SourceLocation &where, std::string_view format, std::format_args args) noexcept
   {
     // One buffer per nesting depth: a formatter may itself log.
-    thread_local std::string buffers[4];
-    thread_local unsigned depth = 0;
-    if (depth >= std::size(buffers))
-      return;
-    std::string &buffer = buffers[depth++];
+    //
+    // The buffers die with the thread's other thread_local objects - and on
+    // the main thread that happens inside exit(), BEFORE the atexit handlers
+    // and static destructors run, which may well log. Formatting into them
+    // then wrote into freed memory. `gone` is trivially destructible, so it
+    // stays readable after that point; once it is set, a line is formatted
+    // into a local string instead.
+    thread_local bool gone = false;
+    struct Buffers
+    {
+      std::string text[4];
+      unsigned depth = 0;
+      ~Buffers() { gone = true; }
+    };
+    std::string late;
+    std::string *slot = &late;
+    unsigned *depth = nullptr;
+    if (!gone)
+    {
+      thread_local Buffers buffers;
+      if (buffers.depth >= std::size(buffers.text))
+        return;
+      depth = &buffers.depth;
+      slot = &buffers.text[buffers.depth++];
+    }
+    std::string &buffer = *slot;
     buffer.clear();
     try
     {
@@ -608,7 +629,8 @@ namespace tinylog::detail
       buffer += format;
     }
     Core::instance().submit(level, where, buffer);
-    --depth;
+    if (depth != nullptr)
+      --*depth;
     // Do not let one huge message pin memory for the life of the thread.
     if (buffer.capacity() > (1u << 20))
       std::string().swap(buffer);

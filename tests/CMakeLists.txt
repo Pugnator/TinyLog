@@ -31,6 +31,16 @@ endif()
 gtest_discover_tests(tinylog_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 60
   PROPERTIES TIMEOUT 120 LABELS unit)
 
+# Logging after main() returns: from an atexit handler, after exit() has
+# already destroyed the main thread's thread_local objects. It used to write
+# into a freed buffer; the sanitizer job reports that, and every job checks
+# the line still arrives.
+add_executable(tinylog_exit_log exit_log.cc)
+target_link_libraries(tinylog_exit_log PRIVATE tinylog::tinylog)
+tinylog_warnings(tinylog_exit_log)
+add_test(NAME exit_log COMMAND tinylog_exit_log)
+set_tests_properties(exit_log PROPERTIES LABELS unit TIMEOUT 60 PASS_REGULAR_EXPRESSION "logged after main 42")
+
 # The DLL / shared object: catches symbols missing from the export list.
 if(TINYLOG_BUILD_SHARED)
   add_executable(tinylog_shared_smoke shared_smoke.cc)

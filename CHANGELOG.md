@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+- A line logged after `main()` returns - from an `atexit` handler, a static destructor, or a `thread_local` destructor that runs after the logger's - was formatted into the thread's already-destroyed buffer: a heap use-after-free that corrupted the heap at exit. `exit()` destroys the main thread's `thread_local` objects before it runs `atexit` handlers, so this hit any program that logged during shutdown. Such lines are now formatted into a local buffer. Found by AddressSanitizer in KaiwaLens on Linux.
+
 ## [0.2.0] - 2026-09-23
 
 A rewrite. The pre-0.2 API still compiles through `<log.hpp>` / `<tinylog/compat.hpp>`.
