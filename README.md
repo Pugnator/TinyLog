@@ -10,6 +10,7 @@ A small, fast C++20 logger for Windows, Linux and macOS, built on `std::format`,
   - A restarted process keeps appending to it.
   - `zstd -d` reads the whole file.
   - A frame cut short by a crash is repaired on the next start.
+- **Channels**: named logs with their own files, sinks and level, e.g. one file per client, sharing the global log's queue and worker thread.
 - **Text or JSON Lines** output, with optional thread id and source location.
 - **Configuration**: from code (`tinylog::Config`), from a string (`"level=debug;file=app.log;rotate.size=10M"`), or from the environment (`TINYLOG_LEVEL`, `TINYLOG_CONFIG`).
 - **Linking**: static library, shared library/DLL (one logger shared by the EXE and every DLL), or a C API with a stable ABI.
@@ -71,7 +72,7 @@ Compile levels out entirely with `-DTINYLOG_ACTIVE_LEVEL=2`, where `2` means `in
 | `rotation.on_open` | `false` | Rotate a non-empty file left by the previous run. |
 | `rotation.max_files` | 5 | Rotated files to keep. 0 = all. |
 | `rotation.compress` / `compress_level` | `none` / 19 | zstd for rotated files, on a background thread. |
-| `layout` | text, ms | `format` (`text` or `json`), `timestamp` precision, `utc`, `show_level`, `show_thread`, `show_source`. |
+| `layout` | text, ms | `format` (`text` or `json`), `timestamp` precision, `utc`, `show_level`, `show_thread`, `show_source`, `show_channel`. |
 | `buffer_size`, `truncate`, `min_level` | 64 KiB, `false`, `trace` | |
 
 Rotated files are named `app.20260923-101502.log[.zst]`, with `.1`, `.2`, … added for several rotations in one second.
@@ -91,6 +92,36 @@ file=logs/errors.jsonl; file.level=error; file.format=json
 Unknown keys and bad values throw `std::invalid_argument` naming the key.
 
 `TINYLOG_LEVEL=debug` also takes effect before `init()` is called.
+
+## Channels
+
+A channel is a named log with sinks of its own: one file per connected client, per job or per subsystem, each with its own rotation. Its records use the global log's queue and worker thread, so a thousand channels do not start a thousand threads.
+
+```cpp
+tinylog::ChannelConfig config;
+auto &file = config.files.emplace_back();
+file.path = "logs/agent-3.log";
+file.rotation.max_size = 1 << 20;
+file.rotation.max_files = 14;
+file.rotation.compress = tinylog::Compression::zstd;
+auto agent = tinylog::open_channel("agent-3", config);
+
+TLOG_INFO_TO(agent, "connected from {}", address);   // only in agent-3.log
+TLOG_INFO("agent {} connected", 3);                    // only in the global sinks
+
+tinylog::close_channel("agent-3");                     // delivers the rest, closes the file
+```
+
+| `ChannelConfig` field | Default | Meaning |
+|---|---|---|
+| `level` | `trace` | The channel's threshold. `set_level()` does not change it; `Channel::set_level()` does. |
+| `console` | none | A console sink for the channel. |
+| `files` / `sinks` | none | As in `Config`. |
+| `forward` | `false` | Also deliver the channel's records to the global sinks. |
+
+- Handles are cheap to copy. `find_channel(name)` returns another handle to an open channel.
+- Opening a name that is already open throws `std::invalid_argument`. After `close_channel()`, every handle logs nowhere, and the name can be opened again.
+- Lines name their channel: `[2026-09-27 21:30:00.000] [info] [agent-3] connected`, or `"channel":"agent-3"` in JSON. `Layout::show_channel` (settings key `channel`) turns that off.
 
 ## Reading compressed logs
 

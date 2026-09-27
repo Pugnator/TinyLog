@@ -21,6 +21,7 @@ Core::submit(): timestamp, OS thread id
   - The first version woke the worker for every message: 0.27 M msg/s at 800 ns p50.
   - Polling brought that to 1.6–2.1 M msg/s at 400 ns p50.
 - **Bounded memory.** `queue_capacity` limits memory. When the queue is full, `block` waits and `drop` discards and counts the message in `stats().dropped`.
+- **Channels share the path.** A queued record carries a channel id (0 for the global log); the worker delivers it to that channel's sinks, and to the global ones as well when the channel forwards. Channels are looked up under the same lock that serializes the sinks, so they need no locks of their own either. A channel's level is its own atomic mask; a set high bit marks it open, so a channel at level `off` is still open and a closed one reads as zero.
 - **Sinks see one caller at a time.** The core serializes calls, so sinks need no locks of their own.
   - A sink that throws is contained and counted.
   - A sink that logs from inside `write()` is refused instead of deadlocking.
@@ -73,7 +74,7 @@ Core::submit(): timestamp, OS thread id
 
 - **Caller-side cost.** Formatting happens on the calling thread, about 0.4 µs per message. Deferred formatting (Quill-style: copy the arguments, format on the worker) would reduce this to tens of ns, but needs type-erased argument capture with lifetime rules for pointers and views. Worth it only if logging on latency-critical threads matters.
 - **No crash-signal handler.** A crash loses what is still queued in async mode. Use sync mode, or a low `flush_level`, where that matters. A best-effort handler (POSIX signals plus a Windows vectored exception handler) could drain the queue.
-- **One global logger.** There are no named loggers or per-module levels. Per-module levels could be added by giving `SourceLocation` a category.
+- **Channels are not categories.** A channel is a destination with its own sinks and level (0.5.0). Per-module levels over the same sinks could still be added by giving `SourceLocation` a category. Channels are not in the C API or the settings string yet.
 - **Retention by count only.** There is no maximum total size, age limit or free-space check.
 - **Time rotation aligns to UTC boundaries.** Daily rotation at local midnight would need time-zone offsets.
 - **`fork()` without `exec()`** is not handled: the child has no async worker. Call `init()` again in the child.

@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-27
+
+### Added
+- Channels: named logs with sinks of their own, next to the global log.
+  - `open_channel(name, ChannelConfig)` returns a `Channel` handle; `find_channel()` and `close_channel()` look one up and close it.
+  - `TLOG_*_TO(channel, fmt, args...)` macros, and `Channel::log()` / `Channel::write()`.
+  - Each channel has its own threshold (`ChannelConfig::level`, `Channel::set_level()`), independent of `set_level()`.
+  - `ChannelConfig::forward` also delivers a channel's records to the global sinks.
+  - Channel records go through the same async queue, worker thread and flush policy as the global log: a channel costs no thread of its own.
+  - `close_channel()` delivers what was queued for the channel, waits for its rotated files to be compressed and pruned, then closes its sinks.
+  - Channels survive `init()`; `flush()`, `wait_idle()` and `shutdown()` cover their sinks.
+- `Record::channel`, and `Layout::show_channel` (on by default): text lines show `[name]` after the level, JSON lines a `"channel"` key. The settings-string key is `channel`.
+
+### Changed
+- The ABI: `Record` has a new field. Rebuild everything that uses the headers; `init()` refuses a mismatched library.
+
 ### Fixed
 - A line logged after `main()` returns - from an `atexit` handler, a static destructor, or a `thread_local` destructor that runs after the logger's - was formatted into the thread's already-destroyed buffer: a heap use-after-free that corrupted the heap at exit. `exit()` destroys the main thread's `thread_local` objects before it runs `atexit` handlers, so this hit any program that logged during shutdown. Such lines are now formatted into a local buffer. Found by AddressSanitizer in KaiwaLens on Linux.
 

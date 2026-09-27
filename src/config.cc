@@ -251,7 +251,7 @@ namespace tinylog
         each_layout(config, next_file, [&](Layout &layout)
                     { layout.timestamp = precision; });
       }
-      else if (key == "utc" || key == "thread" || key == "source" || key == "show_level")
+      else if (key == "utc" || key == "thread" || key == "source" || key == "channel" || key == "show_level")
       {
         const bool on = bool_value(key, value);
         each_layout(config, next_file, [&](Layout &layout)
@@ -262,6 +262,8 @@ namespace tinylog
                         layout.show_thread = on;
                       else if (key == "source")
                         layout.show_source = on;
+                      else if (key == "channel")
+                        layout.show_channel = on;
                       else
                         layout.show_level = on; });
       }

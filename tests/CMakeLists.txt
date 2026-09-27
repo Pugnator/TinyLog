@@ -17,6 +17,7 @@ include(GoogleTest)
 
 add_executable(tinylog_tests
   test_c_api.cc
+  test_channels.cc
   test_compat.cc
   test_config.cc
   test_core.cc

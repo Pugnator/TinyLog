@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <map>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -47,6 +49,7 @@ namespace tinylog::detail
       const char *function;
       std::uint32_t line;
       std::uint32_t size;
+      std::uint32_t channel; //!< 0: the global log.
       Level level;
     };
 
@@ -118,7 +121,8 @@ namespace tinylog::detail
         }
       }
 
-      void submit(Level level, const SourceLocation &where, std::string_view message) noexcept
+      void submit(Level level, const SourceLocation &where, std::string_view message,
+                  std::uint32_t channel = 0) noexcept
       {
         if (t_in_sink)
         {
@@ -132,7 +136,7 @@ namespace tinylog::detail
         if (async_.load(std::memory_order_acquire))
         {
           std::unique_lock<std::mutex> queue(queue_mutex_);
-          if (enqueue_locked(queue, level, where, message, now, tid))
+          if (enqueue_locked(queue, level, where, message, now, tid, channel))
             return;
           // The worker stopped meanwhile: write synchronously below.
         }
@@ -140,7 +144,7 @@ namespace tinylog::detail
         std::lock_guard<std::mutex> sinks(sink_mutex_);
         counters().logged.fetch_add(1, std::memory_order_relaxed);
         Record record{level, now, tid, where, message};
-        dispatch(record);
+        dispatch(record, channel);
         if (level >= flush_level_ || (flush_interval_.count() > 0 && now - last_flush_ >= flush_interval_))
           flush_sinks(now);
       }
@@ -170,6 +174,8 @@ namespace tinylog::detail
         {
           std::lock_guard<std::mutex> sinks(sink_mutex_);
           snapshot = sinks_;
+          for (const auto &[id, channel] : channels_)
+            snapshot.insert(snapshot.end(), channel.sinks.begin(), channel.sinks.end());
         }
         for (const auto &sink : snapshot)
         {
@@ -193,6 +199,10 @@ namespace tinylog::detail
         for (const auto &sink : sinks_)
           guarded([&]
                   { sink->stop_background(); });
+        for (const auto &[id, channel] : channels_)
+          for (const auto &sink : channel.owned)
+            guarded([&]
+                    { sink->stop_background(); });
         // Late messages (static destructors...) are written and flushed at once.
         flush_level_ = Level::trace;
       }
@@ -206,7 +216,89 @@ namespace tinylog::detail
         sinks_.push_back(std::move(sink));
       }
 
+      Channel open_channel(std::string_view name, const ChannelConfig &config)
+      {
+        ensure_initialized();
+        std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+        {
+          std::lock_guard<std::mutex> sinks(sink_mutex_);
+          if (channel_ids_.contains(std::string(name)))
+            throw std::invalid_argument("tinylog: channel '" + std::string(name) + "' is already open");
+        }
+        // Files are opened outside the sink lock: logging goes on meanwhile.
+        ChannelEntry entry;
+        if (config.console)
+          entry.owned.push_back(std::make_shared<ConsoleSink>(*config.console));
+        for (const auto &file : config.files)
+          entry.owned.push_back(std::make_shared<FileSink>(file));
+        entry.sinks = entry.owned;
+        for (const auto &sink : config.sinks)
+        {
+          if (sink)
+            entry.sinks.push_back(sink);
+        }
+        entry.forward = config.forward;
+        entry.state = std::make_shared<ChannelState>();
+        entry.state->name = std::string(name);
+        entry.state->id = next_channel_id_++;
+        entry.state->level_mask.store(mask_from(config.level) | Channel::open_marker);
+        Channel handle(entry.state);
+        std::lock_guard<std::mutex> sinks(sink_mutex_);
+        channel_ids_.emplace(entry.state->name, entry.state->id);
+        channels_.emplace(entry.state->id, std::move(entry));
+        return handle;
+      }
+
+      Channel find_channel(std::string_view name) noexcept
+      {
+        std::lock_guard<std::mutex> sinks(sink_mutex_);
+        const auto id = channel_ids_.find(std::string(name));
+        return id == channel_ids_.end() ? Channel() : Channel(channels_.at(id->second).state);
+      }
+
+      bool close_channel(std::string_view name) noexcept
+      {
+        std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+        std::shared_ptr<ChannelState> state;
+        {
+          std::lock_guard<std::mutex> sinks(sink_mutex_);
+          const auto id = channel_ids_.find(std::string(name));
+          if (id == channel_ids_.end())
+            return false;
+          state = channels_.at(id->second).state;
+        }
+        // No new records, then deliver the queued ones before the sinks go.
+        state->level_mask.store(0);
+        flush();
+        ChannelEntry entry;
+        {
+          std::lock_guard<std::mutex> sinks(sink_mutex_);
+          auto found = channels_.find(state->id);
+          entry = std::move(found->second);
+          channels_.erase(found);
+          channel_ids_.erase(state->name);
+        }
+        // Rotated files are compressed and pruned in the background; let that
+        // finish so a closed channel leaves no more files than it may.
+        for (const auto &sink : entry.owned)
+        {
+          guarded([&]
+                  { sink->wait_idle(); });
+          guarded([&]
+                  { sink->stop_background(); });
+        }
+        return true;
+      }
+
     private:
+      struct ChannelEntry
+      {
+        std::shared_ptr<ChannelState> state;
+        std::vector<std::shared_ptr<Sink>> sinks; //!< Owned and user sinks.
+        std::vector<std::shared_ptr<Sink>> owned;
+        bool forward = false;
+      };
+
       struct Finalizer
       {
         ~Finalizer()
@@ -334,15 +426,30 @@ namespace tinylog::detail
       // Dispatch (caller holds sink_mutex_)
       // -----------------------------------------------------------------------
 
-      void dispatch(const Record &record) noexcept
+      void dispatch(Record record, std::uint32_t channel) noexcept
       {
         SinkScope scope;
-        for (const auto &sink : sinks_)
+        const auto deliver = [&](const std::vector<std::shared_ptr<Sink>> &targets)
         {
-          if (record.level >= sink->min_level)
-            guarded([&]
-                    { sink->write(record); });
+          for (const auto &sink : targets)
+          {
+            if (record.level >= sink->min_level)
+              guarded([&]
+                      { sink->write(record); });
+          }
+        };
+        if (channel == 0)
+        {
+          deliver(sinks_);
+          return;
         }
+        const auto found = channels_.find(channel);
+        if (found == channels_.end())
+          return; // closed meanwhile
+        record.channel = found->second.state->name;
+        deliver(found->second.sinks);
+        if (found->second.forward)
+          deliver(sinks_);
       }
 
       void flush_sinks(std::chrono::system_clock::time_point now, bool forced = false) noexcept
@@ -352,6 +459,10 @@ namespace tinylog::detail
         for (const auto &sink : sinks_)
           guarded([&]
                   { sink->flush(); });
+        for (const auto &[id, channel] : channels_)
+          for (const auto &sink : channel.sinks)
+            guarded([&]
+                    { sink->flush(); });
         t_forced_flush = false;
         last_flush_ = now;
       }
@@ -362,7 +473,7 @@ namespace tinylog::detail
 
       bool enqueue_locked(std::unique_lock<std::mutex> &queue, Level level, const SourceLocation &where,
                           std::string_view message, std::chrono::system_clock::time_point now,
-                          std::uint64_t tid)
+                          std::uint64_t tid, std::uint32_t channel)
       {
         if (!async_active_)
           return false;
@@ -384,7 +495,7 @@ namespace tinylog::detail
         const std::size_t offset = active_.size();
         active_.resize(offset + need);
         QueuedHeader header{now.time_since_epoch().count(), tid, where.file, where.function, where.line,
-                            static_cast<std::uint32_t>(size), level};
+                            static_cast<std::uint32_t>(size), channel, level};
         std::memcpy(active_.data() + offset, &header, sizeof(header));
         std::memcpy(active_.data() + offset + sizeof(header), message.data(), size);
         ++enqueued_;
@@ -494,7 +605,7 @@ namespace tinylog::detail
                             header.thread_id,
                             SourceLocation{header.file, header.function, header.line},
                             std::string_view(text, header.size)};
-              dispatch(record);
+              dispatch(record, header.channel);
               highest = std::max(highest, header.level);
               offset += sizeof(header) + align_up(header.size);
             }
@@ -533,6 +644,10 @@ namespace tinylog::detail
       Level flush_level_ = Level::trace;
       std::chrono::milliseconds flush_interval_{1000};
       std::chrono::system_clock::time_point last_flush_{};
+      //! Open channels by id, and their ids by name (both under sink_mutex_).
+      std::map<std::uint32_t, ChannelEntry> channels_;
+      std::map<std::string, std::uint32_t> channel_ids_;
+      std::uint32_t next_channel_id_ = 1; //!< Under lifecycle_mutex_; 0 is the global log.
 
       std::atomic<bool> async_{false};
       std::mutex queue_mutex_;
@@ -582,59 +697,81 @@ namespace tinylog::detail
     Core::instance().init(config);
   }
 
+  namespace
+  {
+    void vlog_to(std::uint32_t channel, Level level, const SourceLocation &where, std::string_view format,
+                 std::format_args args) noexcept
+    {
+      // One buffer per nesting depth: a formatter may itself log.
+      //
+      // The buffers die with the thread's other thread_local objects - and on
+      // the main thread that happens inside exit(), BEFORE the atexit handlers
+      // and static destructors run, which may well log. Formatting into them
+      // then wrote into freed memory. `gone` is trivially destructible, so it
+      // stays readable after that point; once it is set, a line is formatted
+      // into a local string instead.
+      thread_local bool gone = false;
+      struct Buffers
+      {
+        std::string text[4];
+        unsigned depth = 0;
+        ~Buffers() { gone = true; }
+      };
+      std::string late;
+      std::string *slot = &late;
+      unsigned *depth = nullptr;
+      if (!gone)
+      {
+        thread_local Buffers buffers;
+        if (buffers.depth >= std::size(buffers.text))
+          return;
+        depth = &buffers.depth;
+        slot = &buffers.text[buffers.depth++];
+      }
+      std::string &buffer = *slot;
+      buffer.clear();
+      try
+      {
+        std::vformat_to(std::back_inserter(buffer), format, args);
+      }
+      catch (const std::exception &e)
+      {
+        buffer = "[format error: ";
+        buffer += e.what();
+        buffer += "] ";
+        buffer += format;
+      }
+      catch (...)
+      {
+        buffer = "[format error] ";
+        buffer += format;
+      }
+      Core::instance().submit(level, where, buffer, channel);
+      if (depth != nullptr)
+        --*depth;
+      // Do not let one huge message pin memory for the life of the thread.
+      if (buffer.capacity() > (1u << 20))
+        std::string().swap(buffer);
+    }
+  }
+
   void vlog(Level level, const SourceLocation &where, std::string_view format, std::format_args args) noexcept
   {
-    // One buffer per nesting depth: a formatter may itself log.
-    //
-    // The buffers die with the thread's other thread_local objects - and on
-    // the main thread that happens inside exit(), BEFORE the atexit handlers
-    // and static destructors run, which may well log. Formatting into them
-    // then wrote into freed memory. `gone` is trivially destructible, so it
-    // stays readable after that point; once it is set, a line is formatted
-    // into a local string instead.
-    thread_local bool gone = false;
-    struct Buffers
-    {
-      std::string text[4];
-      unsigned depth = 0;
-      ~Buffers() { gone = true; }
-    };
-    std::string late;
-    std::string *slot = &late;
-    unsigned *depth = nullptr;
-    if (!gone)
-    {
-      thread_local Buffers buffers;
-      if (buffers.depth >= std::size(buffers.text))
-        return;
-      depth = &buffers.depth;
-      slot = &buffers.text[buffers.depth++];
-    }
-    std::string &buffer = *slot;
-    buffer.clear();
-    try
-    {
-      std::vformat_to(std::back_inserter(buffer), format, args);
-    }
-    catch (const std::exception &e)
-    {
-      buffer = "[format error: ";
-      buffer += e.what();
-      buffer += "] ";
-      buffer += format;
-    }
-    catch (...)
-    {
-      buffer = "[format error] ";
-      buffer += format;
-    }
-    Core::instance().submit(level, where, buffer);
-    if (depth != nullptr)
-      --*depth;
-    // Do not let one huge message pin memory for the life of the thread.
-    if (buffer.capacity() > (1u << 20))
-      std::string().swap(buffer);
+    vlog_to(0, level, where, format, args);
   }
+
+  void channel_vlog(const ChannelState &channel, Level level, const SourceLocation &where, std::string_view format,
+                    std::format_args args) noexcept
+  {
+    vlog_to(channel.id, level, where, format, args);
+  }
+
+  void channel_write(const ChannelState &channel, Level level, std::string_view message,
+                     const SourceLocation &where) noexcept
+  {
+    Core::instance().submit(level, where, message, channel.id);
+  }
+
 }
 
 namespace tinylog
@@ -646,6 +783,13 @@ namespace tinylog
   void flush() noexcept { detail::Core::instance().flush(); }
   void wait_idle() noexcept { detail::Core::instance().wait_idle(); }
   void add_sink(std::shared_ptr<Sink> sink) { detail::Core::instance().add_sink(std::move(sink)); }
+
+  Channel open_channel(std::string_view name, const ChannelConfig &config)
+  {
+    return detail::Core::instance().open_channel(name, config);
+  }
+  Channel find_channel(std::string_view name) noexcept { return detail::Core::instance().find_channel(name); }
+  bool close_channel(std::string_view name) noexcept { return detail::Core::instance().close_channel(name); }
 
   void set_level(Level level) noexcept { detail::g_level_mask.store(mask_from(level)); }
   void enable(Level level) noexcept { detail::g_level_mask.fetch_or(level_bit(level)); }

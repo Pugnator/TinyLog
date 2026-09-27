@@ -24,6 +24,8 @@
 #include <atomic>
 #include <cstdint>
 #include <format>
+#include <memory>
+#include <string>
 #include <string_view>
 
 namespace tinylog
@@ -36,6 +38,18 @@ namespace tinylog
     TINYLOG_API void init_checked(const Config &config, int header_version);
     TINYLOG_API void vlog(Level level, const SourceLocation &where, std::string_view format,
                           std::format_args args) noexcept;
+
+    //! A channel's shared state; Channel handles point at it. Opaque to users.
+    struct ChannelState
+    {
+      std::string name;
+      std::uint32_t id = 0;
+      std::atomic<std::uint32_t> level_mask{0};
+    };
+    TINYLOG_API void channel_vlog(const ChannelState &channel, Level level, const SourceLocation &where,
+                                  std::string_view format, std::format_args args) noexcept;
+    TINYLOG_API void channel_write(const ChannelState &channel, Level level, std::string_view message,
+                                   const SourceLocation &where) noexcept;
   }
 
   //! Library version, e.g. "0.2.0". Compare with TINYLOG_VERSION_STRING to detect a stale DLL.
@@ -130,6 +144,75 @@ namespace tinylog
   }
 
   /**
+   * @brief A handle to a channel: a named log with sinks of its own.
+   *
+   * Cheap to copy; every copy logs to the same channel. A default-constructed
+   * handle, or one whose channel was closed, logs nowhere. Records go through
+   * the same queue, worker and flush policy as the global log, so a channel
+   * costs no thread of its own. Use the TLOG_*_TO macros, which skip argument
+   * evaluation for disabled levels.
+   */
+  class Channel
+  {
+  public:
+    Channel() = default;
+    explicit Channel(std::shared_ptr<detail::ChannelState> state) : state_(std::move(state)) {}
+
+    //! True while the channel is open.
+    explicit operator bool() const noexcept { return state_ && state_->level_mask.load() != 0; }
+    std::string_view name() const noexcept { return state_ ? std::string_view(state_->name) : std::string_view(); }
+
+    //! True if a message of this level would be logged. One relaxed atomic load.
+    bool should_log(Level level) const noexcept
+    {
+      return state_ && (state_->level_mask.load(std::memory_order_relaxed) & level_bit(level)) != 0;
+    }
+    //! This channel's threshold; the global level is not involved.
+    void set_level(Level level) noexcept
+    {
+      if (state_ && state_->level_mask.load() != 0)
+        state_->level_mask.store(mask_from(level) | open_marker);
+    }
+
+    //! Formats and logs a message. The format string is checked at compile time.
+    template <typename... Args>
+    void log(Level level, const SourceLocation &where, std::format_string<Args...> format,
+             Args &&...args) const noexcept
+    {
+      if (should_log(level))
+        detail::channel_vlog(*state_, level, where, format.get(), std::make_format_args(args...));
+    }
+    //! Logs a message that is already formatted.
+    void write(Level level, std::string_view message, const SourceLocation &where = {}) const noexcept
+    {
+      if (should_log(level))
+        detail::channel_write(*state_, level, message, where);
+    }
+
+    //! Set in an open channel's mask, so a threshold of `off` still reads as open.
+    static constexpr std::uint32_t open_marker = 1u << 31;
+
+  private:
+    std::shared_ptr<detail::ChannelState> state_;
+  };
+
+  /**
+   * @brief Opens a channel named `name` with the sinks of `config`.
+   *
+   * @throws std::invalid_argument if a channel of that name is open,
+   *         std::system_error if one of its files cannot be opened.
+   */
+  TINYLOG_API Channel open_channel(std::string_view name, const ChannelConfig &config);
+  //! The open channel named `name`, or an empty handle.
+  TINYLOG_API Channel find_channel(std::string_view name) noexcept;
+  /**
+   * @brief Delivers what was logged to the channel so far, then closes its sinks.
+   *
+   * Handles to it log nowhere afterwards. Returns false if no such channel was open.
+   */
+  TINYLOG_API bool close_channel(std::string_view name) noexcept;
+
+  /**
    * @brief Initializes on construction, shuts down on destruction.
    *
    * Put one at the top of main() so pending messages are always written.
@@ -162,6 +245,13 @@ namespace tinylog
       ::tinylog::log(level, TINYLOG_HERE, __VA_ARGS__);          \
   } while (0)
 
+#define TINYLOG_LOG_TO(channel, level, ...)                      \
+  do                                                             \
+  {                                                              \
+    if ((channel).should_log(level))                             \
+      (channel).log(level, TINYLOG_HERE, __VA_ARGS__);           \
+  } while (0)
+
 #define TINYLOG_DISABLED_(...) \
   do                           \
   {                            \
@@ -172,11 +262,21 @@ namespace tinylog
 #else
 #define TLOG_TRACE(...) TINYLOG_DISABLED_(__VA_ARGS__)
 #endif
+#if TINYLOG_ACTIVE_LEVEL <= 0
+#define TLOG_TRACE_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::trace, __VA_ARGS__)
+#else
+#define TLOG_TRACE_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
+#endif
 
 #if TINYLOG_ACTIVE_LEVEL <= 1
 #define TLOG_DEBUG(...) TINYLOG_LOG(::tinylog::Level::debug, __VA_ARGS__)
 #else
 #define TLOG_DEBUG(...) TINYLOG_DISABLED_(__VA_ARGS__)
+#endif
+#if TINYLOG_ACTIVE_LEVEL <= 1
+#define TLOG_DEBUG_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::debug, __VA_ARGS__)
+#else
+#define TLOG_DEBUG_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
 #endif
 
 #if TINYLOG_ACTIVE_LEVEL <= 2
@@ -184,11 +284,21 @@ namespace tinylog
 #else
 #define TLOG_INFO(...) TINYLOG_DISABLED_(__VA_ARGS__)
 #endif
+#if TINYLOG_ACTIVE_LEVEL <= 2
+#define TLOG_INFO_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::info, __VA_ARGS__)
+#else
+#define TLOG_INFO_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
+#endif
 
 #if TINYLOG_ACTIVE_LEVEL <= 3
 #define TLOG_WARN(...) TINYLOG_LOG(::tinylog::Level::warning, __VA_ARGS__)
 #else
 #define TLOG_WARN(...) TINYLOG_DISABLED_(__VA_ARGS__)
+#endif
+#if TINYLOG_ACTIVE_LEVEL <= 3
+#define TLOG_WARN_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::warning, __VA_ARGS__)
+#else
+#define TLOG_WARN_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
 #endif
 
 #if TINYLOG_ACTIVE_LEVEL <= 4
@@ -196,15 +306,30 @@ namespace tinylog
 #else
 #define TLOG_ERROR(...) TINYLOG_DISABLED_(__VA_ARGS__)
 #endif
+#if TINYLOG_ACTIVE_LEVEL <= 4
+#define TLOG_ERROR_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::error, __VA_ARGS__)
+#else
+#define TLOG_ERROR_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
+#endif
 
 #if TINYLOG_ACTIVE_LEVEL <= 5
 #define TLOG_CRITICAL(...) TINYLOG_LOG(::tinylog::Level::critical, __VA_ARGS__)
 #else
 #define TLOG_CRITICAL(...) TINYLOG_DISABLED_(__VA_ARGS__)
 #endif
+#if TINYLOG_ACTIVE_LEVEL <= 5
+#define TLOG_CRITICAL_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::critical, __VA_ARGS__)
+#else
+#define TLOG_CRITICAL_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
+#endif
 
 #if TINYLOG_ACTIVE_LEVEL <= 6
 #define TLOG_FATAL(...) TINYLOG_LOG(::tinylog::Level::fatal, __VA_ARGS__)
 #else
 #define TLOG_FATAL(...) TINYLOG_DISABLED_(__VA_ARGS__)
+#endif
+#if TINYLOG_ACTIVE_LEVEL <= 6
+#define TLOG_FATAL_TO(channel, ...) TINYLOG_LOG_TO(channel, ::tinylog::Level::fatal, __VA_ARGS__)
+#else
+#define TLOG_FATAL_TO(channel, ...) TINYLOG_DISABLED_(channel, __VA_ARGS__)
 #endif

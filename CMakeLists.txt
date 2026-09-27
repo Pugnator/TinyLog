@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(tinylog
-  VERSION 0.2.0
+  VERSION 0.5.0
   DESCRIPTION "Small, fast C++20 logger with zstd-compressed rotation"
   HOMEPAGE_URL "https://github.com/Pugnator/SimpleLogger"
   LANGUAGES C CXX)

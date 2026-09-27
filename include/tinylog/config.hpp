@@ -139,10 +139,29 @@ namespace tinylog
   };
 
   /**
+   * @brief A channel: a named log with sinks of its own (see open_channel()).
+   *
+   * Its records travel through the same queue and worker as the global log's,
+   * but reach only these sinks - plus the global ones with `forward`.
+   */
+  struct ChannelConfig
+  {
+    //! Threshold of this channel alone; set_level() does not change it.
+    Level level = Level::trace;
+    //! Console output; none by default.
+    std::optional<ConsoleSinkConfig> console;
+    std::vector<FileSinkConfig> files;
+    //! User sinks, receiving the channel's records next to the built-in ones.
+    std::vector<std::shared_ptr<Sink>> sinks;
+    //! Also deliver the channel's records to the global sinks.
+    bool forward = false;
+  };
+
+  /**
    * @brief Applies "key=value" settings, separated by ';' or newlines, onto `config`.
    *
    * Keys: level, mode, queue, overflow, flush, flush_interval, console,
-   * console.color, format, timestamp, utc, thread, source, file, file.level,
+   * console.color, format, timestamp, utc, thread, source, channel, file, file.level,
    * file.compress, file.compress_level, file.frame, file.buffer, file.truncate,
    * rotate.size, rotate.interval, rotate.keep, rotate.on_open, rotate.compress,
    * rotate.compress_level. `file=` starts a new file sink; the file.* and

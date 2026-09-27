@@ -61,6 +61,8 @@ namespace tinylog
     std::uint64_t thread_id = 0;
     SourceLocation where{};
     std::string_view message{};
+    //! The channel the record was logged to; empty for the global log.
+    std::string_view channel{};
   };
 
   enum class Format : std::uint8_t
@@ -88,6 +90,8 @@ namespace tinylog
     bool show_thread = false;
     //! Append "file:line" of the call site.
     bool show_source = false;
+    //! Name a channel's records: "[name]" in text, "channel" in JSON. Global records have none.
+    bool show_channel = true;
   };
 
   /**

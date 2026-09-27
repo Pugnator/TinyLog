@@ -228,6 +228,12 @@ namespace tinylog::detail
       tag.second = out.size();
       out += "] ";
     }
+    if (layout_.show_channel && !record.channel.empty())
+    {
+      out.push_back('[');
+      out += record.channel;
+      out += "] ";
+    }
     if (layout_.show_thread)
     {
       out.push_back('[');
@@ -255,7 +261,13 @@ namespace tinylog::detail
     append_timestamp(record.time, true, true, out);
     out += "Z\",\"level\":\"";
     out += to_string(record.level);
-    out += "\",\"thread\":";
+    out += '"';
+    if (layout_.show_channel && !record.channel.empty())
+    {
+      out += ",\"channel\":";
+      append_json_string(out, record.channel);
+    }
+    out += ",\"thread\":";
     char buffer[24];
     auto result = std::to_chars(buffer, buffer + sizeof(buffer), record.thread_id);
     out.append(buffer, result.ptr);
